@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import threading
 import uuid
@@ -12,6 +13,7 @@ from fastapi.responses import FileResponse
 from src.redactor import get_redaction_summary, redact_document
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
+UPLOAD_CHUNK_SIZE = 1024 * 1024
 JOB_TTL_SECONDS = 3600
 JOB_STORE: dict[str, dict] = {}
 
@@ -89,23 +91,26 @@ async def redact_uploaded_document(file: UploadFile = File(...)) -> dict:
     if not file:
         raise HTTPException(status_code=400, detail="No file was uploaded.")
 
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-
-    if len(file_bytes) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail="File exceeds the maximum allowed size.")
-
-    original_name = file.filename or "document.docx"
-    if not original_name.lower().endswith(".docx"):
-        raise HTTPException(status_code=400, detail="Only DOCX files are supported.")
-
     temp_dir = Path(tempfile.mkdtemp(prefix="redactai_"))
     input_path = temp_dir / "uploaded_document.docx"
     output_path = temp_dir / "redacted_document.docx"
 
     try:
-        input_path.write_bytes(file_bytes)
+        file_size = 0
+        with input_path.open("wb") as destination:
+            while chunk := await file.read(UPLOAD_CHUNK_SIZE):
+                file_size += len(chunk)
+                if file_size > MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="File exceeds the maximum allowed size.")
+                destination.write(chunk)
+
+        if file_size == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+        original_name = file.filename or "document.docx"
+        if not original_name.lower().endswith(".docx"):
+            raise HTTPException(status_code=400, detail="Only DOCX files are supported.")
+
         if not validate_docx_file(input_path):
             raise HTTPException(status_code=400, detail="Uploaded file is not a valid DOCX document.")
 
@@ -131,6 +136,7 @@ async def redact_uploaded_document(file: UploadFile = File(...)) -> dict:
             "message": "Redaction completed successfully.",
         }
     except HTTPException:
+        shutil.rmtree(temp_dir, ignore_errors=True)
         raise
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
