@@ -22,6 +22,7 @@ app = FastAPI(title="RedactAI API", version="1.0.0")
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://pii-redaction-assignment.vercel.app",
 ]
 for env_origin in (os.getenv("FRONTEND_ORIGIN") or "").split(","):
     cleaned = env_origin.strip()
