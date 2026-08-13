@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .env
 input/
+evaluation_test.docx
+evaluation_test_redacted.docx
