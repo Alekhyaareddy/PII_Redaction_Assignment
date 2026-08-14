@@ -238,6 +238,26 @@ PIN_PATTERN = re.compile(
 )
 
 
+# A conservative fallback for short, number-led addresses that do not include
+# a PIN code. It requires both an address word and a supported city, which
+# avoids treating ordinary location references as mailing addresses.
+ADDRESS_WITHOUT_PIN_PATTERN = re.compile(
+    r"""
+    (?:(?<=^)|(?<=[\n;:]))
+    (?=[^\n]{0,100}\b(?:Village|Road|Street|Lane|Marg|Nagar|Building|\
+        Complex|Estate|Society|Tower|Colony|Apartment|Housing|Industrial|\
+        Sector|Block|Avenue)\b)
+    \d{1,5}(?:[-/]\d{1,5})?
+    (?:\s*,?\s*[A-Za-z][A-Za-z.'-]*){1,10}
+    \s*,?\s*
+    (?:Pune|Mumbai|Delhi|Bangalore|Bengaluru|Hyderabad|Chennai|Bhopal|\
+       Kolkata|Jaipur|Ahmedabad|Lucknow|Kochi|Visakhapatnam)
+    \b
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+
 # ============================================================
 # KNOWN COMPANIES
 # ============================================================
@@ -401,6 +421,20 @@ def redact_addresses(text):
     This prevents a PIN code from causing hundreds of words
     of prospectus text to be redacted.
     """
+
+    matches = list(PIN_PATTERN.finditer(text))
+
+    # Redact short number-led addresses without a PIN only when their address
+    # wording and city make the classification sufficiently specific.
+    for match in reversed(list(ADDRESS_WITHOUT_PIN_PATTERN.finditer(text))):
+        if REDACTION_TOKEN_PATTERN.search(match.group(0)):
+            continue
+
+        text = (
+            text[:match.start()]
+            + get_replacement("address")
+            + text[match.end():]
+        )
 
     matches = list(PIN_PATTERN.finditer(text))
 
